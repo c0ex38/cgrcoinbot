@@ -1,13 +1,14 @@
 
 """
-CGRCoinBot v0.3.4
-Sinyal Performans Takip Komut Satırı Arayüzü (CLI).
+CGRCoinBot v0.3.6
+Sinyal Performans Takip ve Gelişmiş İstatistik Komut Satırı Arayüzü (CLI).
 
 Kullanım:
     python -m cgrcoinbot.performance_cli --evaluate
     python -m cgrcoinbot.performance_cli --report
-    python -m cgrcoinbot.performance_cli --report --pair BTC/USDT --timeframe 15m
-    python -m cgrcoinbot.performance_cli --report --horizon 3 --limit 50
+    python -m cgrcoinbot.performance_cli --stats
+    python -m cgrcoinbot.performance_cli --stats --pair BTC/USDT --timeframe 15m --horizon 3 --signal AL
+    python -m cgrcoinbot.performance_cli --scan-once
 
 UYARI:
 Bu araç yalnızca geçmişte kaydedilmiş sinyal olaylarının ardından oluşan
@@ -24,6 +25,7 @@ from .performance_service import (
     generate_performance_report,
 )
 from .auto_performance import startup_performance_catchup
+from .performance_stats import generate_advanced_stats_report
 
 
 def print_evaluation_summary(summary: dict) -> None:
@@ -51,7 +53,7 @@ def print_performance_report(report_data: dict, pair_filter=None, tf_filter=None
     by_horizon = report_data["by_horizon"]
 
     print("\n" + "=" * 65)
-    print("             CGRCoinBot v0.3.5 - SİNYAL PERFORMANS RAPORU")
+    print("             CGRCoinBot v0.3.6 - SİNYAL PERFORMANS RAPORU")
     print("=" * 65)
     print("KAPSAM: Salt Fiyat Yönü Uyumu Analizi (Komisyon/Kayma Hariçtir)")
     filters = []
@@ -113,9 +115,77 @@ def print_performance_report(report_data: dict, pair_filter=None, tf_filter=None
     print("=" * 65 + "\n")
 
 
+def print_advanced_stats_report(stats_data: dict) -> None:
+    """Gelişmiş karşılaştırma ve Wilson güven aralıklı istatistikleri gösterir."""
+    overall = stats_data["overall"]
+    groups = stats_data["groups"]
+    filters = stats_data["filters"]
+
+    print("\n" + "=" * 78)
+    print("       CGRCoinBot v0.3.6 - GELİŞMİŞ PERFORMANS İSTATİSTİKLERİ")
+    print("=" * 78)
+    print("TANIM: Sinyal Performansı = Fiyat Yönü Uyumu (Yatırım Getirisi Değildir)")
+
+    active_filters = [f"{k}: {v}" for k, v in filters.items() if v is not None]
+    if active_filters:
+        print("Filtreler -> " + " | ".join(active_filters))
+    print("-" * 78)
+
+    if overall["total"] == 0:
+        print("\nHenüz olgunlaşmış gerçek performans örneği yok (0 örnek).")
+        print("Ölçülen başarı oranı mevcut değil.\n")
+        print("=" * 78 + "\n")
+        return
+
+    # Genel istatistik özeti
+    print("\n--- GENEL İSTATİSTİK ÖZETİ ---")
+    print(f"Toplam Değerlendirilen Kayıt : {overall['total']} (Tekil Olay Sayısı: {overall['distinct_events']})")
+    print(f"Doğru Yön / Ters Yön / Nötr  : {overall['correct']} / {overall['wrong']} / {overall['neutral']}")
+
+    hit_rate_str = f"%{overall['direction_hit_rate_pct']:.2f}" if overall["direction_hit_rate_pct"] is not None else "Hesaplanamıyor"
+    print(f"Yön İsabet Oranı (Doğru/(D+T)): {hit_rate_str}")
+
+    if overall["wilson_ci_95"]:
+        print(f"%95 Wilson Güven Aralığı      : [%{overall['wilson_ci_95'][0]:.2f} - %{overall['wilson_ci_95'][1]:.2f}]")
+    else:
+        print("%95 Wilson Güven Aralığı      : Hesaplanamıyor (karar verilmiş örnek yok)")
+
+    print(f"Yönlü Fiyat Değişimi (Ort/Med): %{overall['mean_directional_change_pct']:+.2f} / %{overall['median_directional_change_pct']:+.2f}")
+    if overall["std_directional_change_pct"] is not None:
+        print(f"Yönlü Değişim Standart Sapma : {overall['std_directional_change_pct']:.4f}")
+    if overall["min_directional_change_pct"] is not None and overall["max_directional_change_pct"] is not None:
+        print(f"Min / Max Yönlü Değişim      : %{overall['min_directional_change_pct']:+.2f} / %{overall['max_directional_change_pct']:+.2f}")
+
+    if overall["is_sample_small"]:
+        print("\n[!] UYARI: Az örnek (n < 30): Güvenilir istatistiksel genelleme yapılamaz.")
+
+    # Gruplar bazında karşılaştırma tablosu
+    if groups:
+        print("\n--- KARŞILAŞTIRMA TABLOSU (Parite / TF / Ufuk / Sinyal) ---")
+        print(
+            f"{'Parite':<10} | {'TF':<4} | {'Ufuk':<6} | {'Sinyal':<6} | "
+            f"{'Kayıt':<5} | {'D/T/N':<7} | {'İsabet %':<10} | {'Wilson %95':<16} | {'Ort %':<8}"
+        )
+        print("-" * 78)
+        for g in groups:
+            st = g["stats"]
+            h_rate = f"%{st['direction_hit_rate_pct']:.1f}" if st["direction_hit_rate_pct"] is not None else "N/A"
+            w_ci = f"[%{st['wilson_ci_95'][0]:.1f}-%{st['wilson_ci_95'][1]:.1f}]" if st["wilson_ci_95"] else "N/A"
+            dtn = f"{st['correct']}/{st['wrong']}/{st['neutral']}"
+            mean_pct = f"{st['mean_directional_change_pct']:+6.2f}%" if st["mean_directional_change_pct"] is not None else "-"
+            warn_flag = "*" if st["is_sample_small"] else " "
+            print(
+                f"{g['pair']:<10} | {g['timeframe']:<4} | {g['horizon_candles']:<2} mum  | {g['signal']:<6} | "
+                f"{st['total']:<5} | {dtn:<7} | {h_rate:<10} | {w_ci:<16} | {mean_pct:<8}{warn_flag}"
+            )
+        print("-" * 78)
+        print("(*) ile işaretli gruplar n < 30 küçük örneklemdir.")
+    print("=" * 78 + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="CGRCoinBot Sinyal Performans Takip Sistemi"
+        description="CGRCoinBot Sinyal Performans Takip ve İstatistik Sistemi"
     )
     parser.add_argument(
         "--evaluate",
@@ -126,6 +196,11 @@ def main():
         "--report",
         action="store_true",
         help="Kaydedilmiş performans istatistiklerini raporlar",
+    )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Gelişmiş karşılaştırmalı istatistikleri ve Wilson güven aralıklarını raporlar",
     )
     parser.add_argument(
         "--scan-once",
@@ -153,6 +228,13 @@ def main():
         help="Belirli bir mum ufkuna göre filtrele (1, 3, 6, 12)",
     )
     parser.add_argument(
+        "--signal",
+        type=str,
+        default=None,
+        choices=["AL", "SAT"],
+        help="Belirli bir sinyal yönüne göre filtrele (AL veya SAT)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=100,
@@ -163,7 +245,7 @@ def main():
 
     initialize_performance_table()
 
-    if not args.evaluate and not args.report and not args.scan_once:
+    if not args.evaluate and not args.report and not args.stats and not args.scan_once:
         parser.print_help()
         sys.exit(0)
 
@@ -189,6 +271,16 @@ def main():
             tf_filter=args.timeframe,
             hz_filter=args.horizon,
         )
+
+    if args.stats:
+        stats_data = generate_advanced_stats_report(
+            pair=args.pair,
+            timeframe=args.timeframe,
+            horizon=args.horizon,
+            signal=args.signal,
+            limit=args.limit,
+        )
+        print_advanced_stats_report(stats_data)
 
 
 if __name__ == "__main__":
