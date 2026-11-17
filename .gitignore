@@ -1,0 +1,49 @@
+@'
+# Freqtrade kaynak kodu
+/freqtrade/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Ortam degiskenleri
+.env
+.env.*
+!.env.example
+
+# Gizli yapilandirma
+/user_data/config.json
+config.private.json
+
+# SQLite veritabanlari
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Freqtrade piyasa verileri
+/user_data/data/
+/user_data/backtest_results/
+/user_data/hyperopt_results/
+/user_data/freqaimodels/
+/user_data/logs/
+/user_data/notebooks/
+/user_data/plot/
+
+# Node.js / Next.js
+node_modules/
+.next/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+'@ | Set-Content -Path ".gitignore" -Encoding utf8
