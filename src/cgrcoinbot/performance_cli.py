@@ -23,6 +23,7 @@ from .performance_service import (
     evaluate_all_performances,
     generate_performance_report,
 )
+from .auto_performance import startup_performance_catchup
 
 
 def print_evaluation_summary(summary: dict) -> None:
@@ -50,7 +51,7 @@ def print_performance_report(report_data: dict, pair_filter=None, tf_filter=None
     by_horizon = report_data["by_horizon"]
 
     print("\n" + "=" * 65)
-    print("             CGRCoinBot v0.3.4 - SİNYAL PERFORMANS RAPORU")
+    print("             CGRCoinBot v0.3.5 - SİNYAL PERFORMANS RAPORU")
     print("=" * 65)
     print("KAPSAM: Salt Fiyat Yönü Uyumu Analizi (Komisyon/Kayma Hariçtir)")
     filters = []
@@ -67,7 +68,8 @@ def print_performance_report(report_data: dict, pair_filter=None, tf_filter=None
     if overall["total"] == 0:
         print("\nHenüz olgunlaşmış performans kaydı bulunmuyor (0 örnek).")
         print("Not: Yeni sinyal olayları oluştukça ve hedef mumlar kapandıkça")
-        print("     --evaluate komutu ile performans ölçümü yapılabilir.\n")
+        print("     kolektör tarafından otomatik olarak veya --scan-once / --evaluate")
+        print("     CLI komutlarıyla performans ölçümü gerçekleştirilir.\n")
         print("=" * 65)
         return
 
@@ -126,6 +128,11 @@ def main():
         help="Kaydedilmiş performans istatistiklerini raporlar",
     )
     parser.add_argument(
+        "--scan-once",
+        action="store_true",
+        help="Tüm pariteler için bekleyen performansları tek seferde tarayıp değerlendirir",
+    )
+    parser.add_argument(
         "--pair",
         type=str,
         default=None,
@@ -156,9 +163,14 @@ def main():
 
     initialize_performance_table()
 
-    if not args.evaluate and not args.report:
+    if not args.evaluate and not args.report and not args.scan_once:
         parser.print_help()
         sys.exit(0)
+
+    if args.scan_once:
+        summary = startup_performance_catchup(limit=args.limit)
+        print_evaluation_summary(summary)
+        return
 
     if args.evaluate:
         summary = evaluate_all_performances()

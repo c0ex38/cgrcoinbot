@@ -184,14 +184,19 @@ def evaluate_event_horizon(
 def evaluate_all_performances(
     horizons: Optional[List[int]] = None,
     now_ms: Optional[int] = None,
+    pair: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    limit: Optional[int] = None,
 ) -> Dict[str, int]:
     """
-    Tüm uygun sinyal olaylarını inceler, olgunlaşmış ufuklar için
+    Tüm veya filtrelenen uygun sinyal olaylarını inceler, olgunlaşmış ufuklar için
     hesaplama yapar ve signal_performance tablosuna idempotent kaydeder.
     """
     initialize_performance_table()
     hzs = horizons or DEFAULT_HORIZONS
-    events = get_actionable_events()
+    events = get_actionable_events(pair=pair, timeframe=timeframe)
+    if limit is not None and limit > 0:
+        events = events[:limit]
 
     summary = {
         "total_events": len(events),

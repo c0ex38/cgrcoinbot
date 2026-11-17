@@ -14,7 +14,9 @@ from websockets.asyncio.client import connect
 
 from .main import get_tracked_pairs
 from .auto_signal import on_candle_closed_async
+from .auto_performance import on_candle_performance_async, startup_performance_catchup
 from .signal_store import initialize_signal_table
+from .performance_store import initialize_performance_table
 from .candle_store import (
     INTERVAL_MS,
     initialize_db,
@@ -158,7 +160,7 @@ async def recover_all(symbols):
             complete = await asyncio.to_thread(
                 recover_candles, symbol, timeframe
             )
-            # Recovery sonrası son kapanmış mum için bir kez sinyal kontrolü yap
+            # Recovery sonrası son kapanmış mum için sinyal ve performans kontrolü yap
             if complete:
                 try:
                     await on_candle_closed_async(symbol, timeframe)
@@ -168,6 +170,15 @@ async def recover_all(symbols):
                         symbol,
                         timeframe,
                         sig_err,
+                    )
+                try:
+                    await on_candle_performance_async(symbol, timeframe)
+                except Exception as perf_err:
+                    logger.debug(
+                        "Recovery sonrası performans kontrolü atlandı: %s %s (%s)",
+                        symbol,
+                        timeframe,
+                        perf_err,
                     )
 
 
@@ -247,7 +258,11 @@ async def collect():
 
     initialize_db()
     initialize_signal_table()
-    logger.info("Mum ve sinyal veritabanı tabloları hazır.")
+    initialize_performance_table()
+    logger.info("Mum, sinyal ve performans veritabanı tabloları hazır.")
+
+    # Açılışta olgunlaşmış bekleyen performanslar için backlog catch-up
+    await asyncio.to_thread(startup_performance_catchup)
 
     url = build_ws_url(symbols)
 
@@ -335,6 +350,20 @@ async def collect():
                                     symbol,
                                     timeframe,
                                     sig_err,
+                                )
+
+                            # Mum kaydından sonra olgunlaşan performansları otomatik değerlendir.
+                            try:
+                                await on_candle_performance_async(
+                                    pair=symbol,
+                                    timeframe=timeframe,
+                                )
+                            except Exception as perf_err:
+                                logger.warning(
+                                    "Otomatik performans tetikleme hatası: %s %s: %s",
+                                    symbol,
+                                    timeframe,
+                                    perf_err,
                                 )
 
                         except (

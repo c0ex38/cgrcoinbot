@@ -17,7 +17,7 @@ from .candle_store import db_session
 
 
 def initialize_performance_table():
-    """signal_performance tablosunu oluşturur."""
+    """signal_performance tablosunu ve ilişkili indeksleri oluşturur."""
     with db_session() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS signal_performance (
@@ -36,6 +36,14 @@ def initialize_performance_table():
                 UNIQUE(event_id, horizon_candles),
                 FOREIGN KEY(event_id) REFERENCES signal_events(id) ON DELETE CASCADE
             )
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_perf_pair_tf
+            ON signal_performance(pair, timeframe)
+        """)
+        con.execute("""
+            CREATE INDEX IF NOT EXISTS idx_events_pair_tf_sig
+            ON signal_events(pair, timeframe, current_signal)
         """)
 
 
