@@ -13,6 +13,8 @@ from .data_integrity import audit_series
 from websockets.asyncio.client import connect
 
 from .main import get_tracked_pairs
+from .auto_signal import on_candle_closed_async
+from .signal_store import initialize_signal_table
 from .candle_store import (
     INTERVAL_MS,
     initialize_db,
@@ -148,14 +150,25 @@ def build_ws_url(symbols):
 
 
 async def recover_all(symbols):
-    """Bağlantı öncesi geçmiş verileri tamamlar."""
+    """Bağlantı öncesi geçmiş verileri tamamlar ve son kapanmış mumu analiz eder."""
     for symbol in symbols:
         for timeframe in TIMEFRAMES:
             # Ağ ve veritabanı işlemleri event loop'u
             # bloke etmesin diye ayrı thread'de çalışır.
-            await asyncio.to_thread(
+            complete = await asyncio.to_thread(
                 recover_candles, symbol, timeframe
             )
+            # Recovery sonrası son kapanmış mum için bir kez sinyal kontrolü yap
+            if complete:
+                try:
+                    await on_candle_closed_async(symbol, timeframe)
+                except Exception as sig_err:
+                    logger.debug(
+                        "Recovery sonrası sinyal kontrolü atlandı: %s %s (%s)",
+                        symbol,
+                        timeframe,
+                        sig_err,
+                    )
 
 
 async def periodic_integrity_check(symbols):
@@ -233,7 +246,8 @@ async def collect():
         raise ValueError("Takip listesi boş.")
 
     initialize_db()
-    logger.info("Mum veritabanı hazır.")
+    initialize_signal_table()
+    logger.info("Mum ve sinyal veritabanı tabloları hazır.")
 
     url = build_ws_url(symbols)
 
@@ -307,6 +321,21 @@ async def collect():
                                 timeframe,
                                 candle["c"],
                             )
+
+                            # Mum başarıyla kaydedildikten sonra otomatik sinyal analizi tetikle.
+                            try:
+                                await on_candle_closed_async(
+                                    pair=symbol,
+                                    timeframe=timeframe,
+                                    open_time=candle["t"],
+                                )
+                            except Exception as sig_err:
+                                logger.warning(
+                                    "Otomatik sinyal tetikleme hatası: %s %s: %s",
+                                    symbol,
+                                    timeframe,
+                                    sig_err,
+                                )
 
                         except (
                             KeyError,
