@@ -26,6 +26,7 @@ config.private.json
 
 # Freqtrade piyasa verileri ve kullanici verileri
 /user_data/
+/exports/
 
 
 # Node.js / Next.js
